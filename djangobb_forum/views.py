@@ -6,10 +6,10 @@ from django.utils import timezone
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.models import User
+
 from django.contrib.sites.models import Site
 from django.core.cache import cache
-from django.core.exceptions import SuspiciousOperation
+from django.core.exceptions import SuspiciousOperation, PermissionDenied
 from django.core.urlresolvers import reverse
 from django.db import transaction
 from django.db.models import Q, F
@@ -18,9 +18,11 @@ from django.shortcuts import get_object_or_404, render
 from django.utils.encoding import smart_str
 from django.utils.translation import ugettext as _
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 
 from haystack.query import SearchQuerySet, SQ
 
+from djangobb_forum.user import User
 from djangobb_forum import settings as forum_settings
 from djangobb_forum.forms import AddPostForm, EditPostForm, UserSearchForm, \
     PostSearchForm, ReputationForm, MailToForm, EssentialsProfileForm, \
@@ -330,7 +332,7 @@ def misc(request):
 def show_forum(request, forum_id, full=True):
     forum = get_object_or_404(Forum, pk=forum_id)
     if not forum.category.has_access(request.user):
-        return HttpResponseForbidden()
+        raise PermissionDenied
     topics = forum.topics.order_by('-sticky', '-updated').select_related()
     moderator = request.user.is_superuser or\
         request.user in forum.moderators.all()
@@ -365,11 +367,11 @@ def show_topic(request, topic_id, full=True):
     user_is_authenticated = request.user.is_authenticated()
     if post_request and not user_is_authenticated:
         # Info: only user that are logged in should get forms in the page.
-        return HttpResponseForbidden()
+        raise PermissionDenied
 
     topic = get_object_or_404(Topic.objects.select_related(), pk=topic_id)
     if not topic.forum.category.has_access(request.user):
-        return HttpResponseForbidden()
+        raise PermissionDenied
     Topic.objects.filter(pk=topic.id).update(views=F('views') + 1)
 
     last_post = topic.last_post
@@ -471,7 +473,7 @@ def add_topic(request, forum_id):
     """
     forum = get_object_or_404(Forum, pk=forum_id)
     if not forum.category.has_access(request.user):
-        return HttpResponseForbidden()
+        raise PermissionDenied
 
     ip = request.META.get('REMOTE_ADDR', None)
     post_form_kwargs = {"forum":forum, "user":request.user, "ip":ip, }
@@ -537,7 +539,7 @@ def upload_avatar(request, username, template=None, form_class=None):
         topic_count = Topic.objects.filter(user__id=user.id).count()
         if user.forum_profile.post_count < forum_settings.POST_USER_SEARCH and not request.user.is_authenticated():
             messages.error(request, _("Please sign in."))
-            return HttpResponseRedirect(reverse('user_signin') + '?next=%s' % request.path)
+            return HttpResponseRedirect(settings.LOGIN_URL + '?next=%s' % request.path)
         return render(request, template, {'profile': user,
                 'topic_count': topic_count,
                })
@@ -562,7 +564,7 @@ def user(request, username, section='essentials', action=None, template='djangob
         topic_count = Topic.objects.filter(user__id=user.id).count()
         if user.forum_profile.post_count < forum_settings.POST_USER_SEARCH and not request.user.is_authenticated():
             messages.error(request, _("Please sign in."))
-            return HttpResponseRedirect(reverse('user_signin') + '?next=%s' % request.path)
+            return HttpResponseRedirect(settings.LOGIN_URL + '?next=%s' % request.path)
         return render(request, template, {'profile': user,
                 'topic_count': topic_count,
                })
